@@ -140,7 +140,9 @@ own source files.
 ```
 lmstudio_hf.py     entry point
 lmshf/
-  cli.py           argument parsing and the interactive flows
+  cli.py           argument parsing and command dispatch
+  importing.py     the import/remove flow
+  projectors.py    the attach, detach, doctor and list flows
   termui.py        keypress input and the selection menu
   paths.py         where the cache and the models directory are
   links.py         symlink / junction / hard link creation and removal

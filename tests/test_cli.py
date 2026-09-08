@@ -139,14 +139,14 @@ class ImportCommandTest(CliFixture):
     """The import flow, with the menu answered by a stub."""
 
     def choose(self, *names):
-        from lmshf import cli
+        from lmshf import importing
 
         def fake_select_many(choices, header, instructions=None, **kwargs):
             picked = [i for i, c in enumerate(choices)
                       if any(name in c.label for name in names)]
             return termui_selection(picked)
 
-        return mock.patch.object(cli, "select_many", side_effect=fake_select_many)
+        return mock.patch.object(importing, "select_many", side_effect=fake_select_many)
 
     def test_import_links_a_snapshot(self):
         with self.choose("gemma-4-31B-it"):
@@ -166,10 +166,10 @@ class ImportCommandTest(CliFixture):
         self.assertFalse((self.lmstudio / "unsloth" / "gemma-4-31B-it-GGUF").exists())
 
     def test_cancelling_changes_nothing(self):
-        from lmshf import cli
+        from lmshf import importing
         from lmshf.termui import Selection
 
-        with mock.patch.object(cli, "select_many", return_value=Selection(cancelled=True)):
+        with mock.patch.object(importing, "select_many", return_value=Selection(cancelled=True)):
             code, out = self.run_cli("import")
         self.assertEqual(code, 0)
         self.assertIn("cancelled", out)
