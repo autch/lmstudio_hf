@@ -52,8 +52,13 @@ GLYPH_ELLIPSIS = _pick_glyphs("…", "...")
 
 
 def display_width(text):
-    """Columns `text` occupies; CJK characters take two of them."""
-    return sum(2 if unicodedata.east_asian_width(ch) in "WF" else 1 for ch in text)
+    """Columns `text` occupies: CJK takes two, a combining mark takes none."""
+    total = 0
+    for ch in text:
+        if unicodedata.combining(ch):
+            continue  # sits on the previous character
+        total += 2 if unicodedata.east_asian_width(ch) in "WF" else 1
+    return total
 
 
 def fit(text, width):
@@ -64,7 +69,7 @@ def fit(text, width):
     out = []
     used = 0
     for ch in text:
-        step = 2 if unicodedata.east_asian_width(ch) in "WF" else 1
+        step = 0 if unicodedata.combining(ch) else             (2 if unicodedata.east_asian_width(ch) in "WF" else 1)
         if used + step > budget:
             break
         out.append(ch)

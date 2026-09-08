@@ -173,7 +173,7 @@ FILE_TYPES = {
 }
 
 _QUANT_IN_NAME = re.compile(
-    r"(?<![A-Za-z0-9])(IQ\d[A-Z0-9_]*|Q\d[A-Z0-9_]*|BF16|F16|F32|TQ\d_\d)"
+    r"(?<![A-Za-z0-9])(IQ[0-9][A-Z0-9_]*|Q[0-9][A-Z0-9_]*|BF16|F16|F32|TQ[0-9]_[0-9])"
     r"(?![A-Za-z0-9])",
     re.IGNORECASE,
 )

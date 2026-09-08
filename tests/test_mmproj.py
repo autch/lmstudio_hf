@@ -230,3 +230,36 @@ class MultipleProjectorsTest(AttachFixture):
         _, _, moved = mmproj.attach(self.model_dir, self.projector, "other/repo")
         self.assertEqual([m.name for m in moved], ["mmproj-x.gguf.disabled2"])
         self.assertTrue((self.model_dir / "mmproj-x.gguf.disabled").exists())
+
+
+class NormalisationTest(AttachFixture):
+    """macOS stores names decomposed; the same name can come back respelled."""
+
+    # "mmproj-ガ.gguf": composed, then the same name as ka + combining mark.
+    NFC = "mmproj-" + chr(0x30AC) + ".gguf"
+    NFD = "mmproj-" + chr(0x30AB) + chr(0x3099) + ".gguf"
+
+    def test_the_two_spellings_compare_equal(self):
+        self.assertNotEqual(self.NFC, self.NFD)
+        self.assertTrue(mmproj.same_name(self.NFC, self.NFD))
+        self.assertFalse(mmproj.same_name(self.NFC, "mmproj-other.gguf"))
+
+    def test_our_own_link_is_recognised_through_a_respelling(self):
+        # Written decomposed, recorded composed: the tool has to see one file.
+        (self.model_dir / self.NFD).write_bytes(projector_gguf())
+        mmproj.write_sidecar(self.model_dir, {"version": 1, "mmproj": {"link": self.NFC}})
+
+        _, _, moved = mmproj.attach(self.model_dir, self.projector, "upstream/base-GGUF")
+        # Ours, so it is dropped rather than kept as a .disabled stranger.
+        self.assertEqual(moved, [])
+        self.assertFalse((self.model_dir / (self.NFD + ".disabled")).exists())
+
+    def test_detach_finds_a_respelled_link(self):
+        (self.model_dir / self.NFD).write_bytes(projector_gguf())
+        mmproj.write_sidecar(self.model_dir, {"version": 1, "mmproj": {"link": self.NFC}})
+
+        self.assertEqual(mmproj.detach(self.model_dir), self.NFC)
+        self.assertEqual(mmproj.projectors_in(self.model_dir), [])
+
+    def test_find_named_returns_none_when_it_is_really_absent(self):
+        self.assertIsNone(mmproj.find_named(self.model_dir, "mmproj-nowhere.gguf"))

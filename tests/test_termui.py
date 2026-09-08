@@ -145,3 +145,15 @@ class ConfigureOutputTest(unittest.TestCase):
     def test_a_stream_that_cannot_be_reconfigured_is_left_alone(self):
         with mock.patch.object(sys, "stdout", io.StringIO()):
             termui.configure_output()  # must not raise
+
+
+class CombiningMarkTest(unittest.TestCase):
+    def test_a_combining_mark_adds_no_width(self):
+        composed = chr(0x30AC)  # a single character
+        decomposed = chr(0x30AB) + chr(0x3099)  # the same, as base + mark
+        self.assertEqual(termui.display_width(composed), 2)
+        self.assertEqual(termui.display_width(decomposed), 2)
+
+    def test_fit_measures_decomposed_text_the_same_way(self):
+        decomposed = (chr(0x30AB) + chr(0x3099)) * 10
+        self.assertLessEqual(termui.display_width(termui.fit(decomposed, 10)), 10)

@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import re
+import unicodedata
 
 from . import gguf
 from .links import link_into, remove_path
@@ -127,6 +128,33 @@ def link_name(repo, projector):
     return f"mmproj-{stem or 'source'}-{projector.quant}.gguf"
 
 
+def same_name(one, other):
+    """Compare two file names the way a filesystem might not.
+
+    macOS stores names decomposed, so a name written as NFC comes back as
+    NFD and a plain == says two spellings of the same Japanese file name are
+    different files. That would have the tool treat its own link as a
+    stranger's and rename it aside instead of replacing it.
+    """
+    return (unicodedata.normalize("NFC", one or "")
+            == unicodedata.normalize("NFC", other or ""))
+
+
+def find_named(model_dir, name):
+    """The file called `name`, whichever normalisation the filesystem used."""
+    direct = model_dir / name
+    if direct.exists() or direct.is_symlink():
+        return direct
+    try:
+        entries = list(model_dir.iterdir())
+    except OSError:
+        return None
+    for entry in entries:
+        if same_name(entry.name, name):
+            return entry
+    return None
+
+
 def read_sidecar(model_dir):
     try:
         with open(model_dir / SIDECAR, encoding="utf-8") as f:
@@ -148,8 +176,7 @@ def attached_link(model_dir):
     name = record.get("link")
     if not name:
         return None
-    path = model_dir / name
-    return path if path.exists() or path.is_symlink() else None
+    return find_named(model_dir, name)
 
 
 def projectors_in(model_dir):
@@ -197,7 +224,7 @@ def attach(model_dir, projector, repo, compat=None):
 
     moved_aside = []
     for existing in projectors_in(model_dir):
-        backup = disable(existing.path, ours=existing.path.name == previous_name)
+        backup = disable(existing.path, ours=same_name(existing.path.name, previous_name))
         if backup is not None:
             moved_aside.append(backup)
 
@@ -230,8 +257,8 @@ def detach(model_dir):
     if not name:
         return None
 
-    path = model_dir / name
-    if path.exists() or path.is_symlink():
+    path = find_named(model_dir, name)
+    if path is not None:
         remove_path(path)
     record.pop("mmproj", None)
     if set(record) <= {"version"}:
