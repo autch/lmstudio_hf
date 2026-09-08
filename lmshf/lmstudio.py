@@ -9,7 +9,7 @@ from . import gguf, mmproj
 
 # A split model is "name-00002-of-00005.gguf"; only the first part carries
 # the full header, and every part is about the same size.
-_SPLIT_PART = re.compile(r"-(\d{5})-of-\d{5}\.gguf$", re.IGNORECASE)
+_SPLIT_PART = re.compile(r"-([0-9]{5})-of-[0-9]{5}[.]gguf$", re.IGNORECASE)
 
 
 def existing_models(lm_studio_dir):

@@ -6,6 +6,7 @@ import argparse
 
 from .importing import manage_models
 from .projectors import attach_command, detach_command, doctor_command, list_command
+from .termui import configure_output
 
 
 def build_parser():
@@ -38,6 +39,7 @@ def build_parser():
 
 
 def main(argv=None):
+    configure_output()
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command in (None, "import"):

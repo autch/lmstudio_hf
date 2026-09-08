@@ -81,6 +81,14 @@ so its origin stays visible, and a `.lmstudio_hf.json` sidecar in the model
 directory records where it came from. `detach-mmproj` uses that record to
 remove exactly what was added.
 
+Names are taken as they come. A repository or file name written in kanji or
+hanzi is kept in the link name; only characters a filesystem refuses (and
+whitespace, which is tedious to pass to `--file`) are replaced, and the name is
+clipped on a character boundary so it fits a filesystem's per-component limit.
+Output escapes anything the console's code page cannot encode — a simplified
+Chinese file name on a `cp932` console, say — instead of failing part way
+through a report.
+
 If the directory already holds a projector it is cleared first — two of them in
 one folder leaves it undefined which one LM Studio picks. A projector this tool
 did not create is renamed to `*.gguf.disabled` rather than deleted.

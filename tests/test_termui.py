@@ -2,6 +2,7 @@
 
 import io
 import re
+import sys
 import unittest
 from contextlib import redirect_stdout
 from unittest import mock
@@ -114,3 +115,33 @@ class FitTest(unittest.TestCase):
             # Colour codes take no columns, so measure what is actually shown.
             visible = re.sub(chr(27) + "[[][0-9;]*[A-Za-z]", "", line)
             self.assertLessEqual(termui.display_width(visible), 80)
+
+
+class ConfigureOutputTest(unittest.TestCase):
+    """A name the console cannot encode must not end the run."""
+
+    HANZI = chr(0x7B80)  # simplified Chinese, absent from cp932
+    ESCAPED = (chr(92) + "u7b80").encode("ascii")
+
+    def console(self):
+        raw = io.BytesIO()
+        return raw, io.TextIOWrapper(raw, encoding="cp932", errors="strict", newline="")
+
+    def test_a_strict_console_would_raise(self):
+        raw, stream = self.console()
+        with self.assertRaises(UnicodeEncodeError):
+            stream.write(self.HANZI)
+            stream.flush()
+
+    def test_configured_output_escapes_instead(self):
+        raw, stream = self.console()
+        with mock.patch.object(sys, "stdout", stream), mock.patch.object(sys, "stderr", stream):
+            termui.configure_output()
+            print(f"model: {self.HANZI}.gguf")
+            stream.flush()
+        self.assertIn(self.ESCAPED, raw.getvalue())
+        self.assertIn(b"model: ", raw.getvalue())
+
+    def test_a_stream_that_cannot_be_reconfigured_is_left_alone(self):
+        with mock.patch.object(sys, "stdout", io.StringIO()):
+            termui.configure_output()  # must not raise

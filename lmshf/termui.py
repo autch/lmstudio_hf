@@ -72,6 +72,22 @@ def fit(text, width):
     return "".join(out) + GLYPH_ELLIPSIS
 
 
+def configure_output():
+    """Stop a name the console cannot encode from killing the run.
+
+    Model directories and repository names come from whoever published them,
+    so a report can carry Chinese, Korean or accented characters that a cp932
+    or cp1252 console has no encoding for. The default is to raise
+    UnicodeEncodeError halfway through the output; escaping the characters
+    instead keeps the rest of the report, and keeps the name recoverable.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="backslashreplace")
+        except (AttributeError, OSError, ValueError):
+            pass  # already replaced, or not a text stream we can reconfigure
+
+
 def enable_ansi():
     """Enable VT escape sequence processing on legacy Windows consoles."""
     if not IS_WINDOWS:

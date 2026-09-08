@@ -185,3 +185,49 @@ def termui_selection(indices):
     from lmshf.termui import Selection
 
     return Selection(indices=indices)
+
+
+class NonAsciiNamesTest(CliFixture):
+    """Repository, directory and file names are whatever the publisher chose."""
+
+    KANJI = chr(0x6F22) + chr(0x5B57)  # a directory name in kanji
+    HANZI = chr(0x6A21) + chr(0x578B)  # a file name in simplified Chinese
+
+    def setUp(self):
+        super().setUp()
+        snapshot = (self.cache / "hub" / f"models--{self.KANJI}--Gemma4-GGUF"
+                    / "snapshots" / "cc")
+        snapshot.mkdir(parents=True)
+        self.projector = snapshot / f"{self.HANZI}-mmproj.gguf"
+        self.projector.write_bytes(projector_gguf())
+
+        self.kanji_model = self.lmstudio / self.KANJI / f"{self.HANZI}-GGUF"
+        self.kanji_model.mkdir(parents=True)
+        (self.kanji_model / f"{self.HANZI}-Q4_K_M.gguf").write_bytes(text_gguf())
+
+    def test_a_projector_named_in_hanzi_is_found(self):
+        # The file name says nothing about it being a projector; the header does.
+        code, out = self.run_cli("attach-mmproj", "--to", self.KANJI,
+                                 "--from", self.KANJI, "-y")
+        self.assertEqual(code, 0, out)
+        linked = mmproj.projectors_in(self.kanji_model)
+        self.assertEqual(len(linked), 1)
+        self.assertIn("mmproj", linked[0].path.name)
+        self.assertIn(self.KANJI, linked[0].path.name)
+
+    def test_the_record_round_trips_through_json(self):
+        self.run_cli("attach-mmproj", "--to", self.KANJI, "--from", self.KANJI, "-y")
+        record = mmproj.read_sidecar(self.kanji_model)["mmproj"]
+        self.assertEqual(record["source_repo"], f"{self.KANJI}/Gemma4-GGUF")
+        self.assertEqual(record["source_file"], f"{self.HANZI}-mmproj.gguf")
+
+        code, _ = self.run_cli("detach-mmproj", "--from", self.KANJI)
+        self.assertEqual(code, 0)
+        self.assertEqual(mmproj.projectors_in(self.kanji_model), [])
+        self.assertTrue(self.projector.exists())
+
+    def test_doctor_and_list_report_them(self):
+        _, out = self.run_cli("doctor")
+        self.assertIn(self.KANJI, out)
+        _, out = self.run_cli("list")
+        self.assertIn(self.HANZI, out)

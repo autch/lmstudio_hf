@@ -103,12 +103,32 @@ class LinkNameTest(unittest.TestCase):
         info = gguf.GGUFInfo(path=Path("visual.gguf"), quant="F16")
         self.assertTrue(mmproj.link_name("org/model", info).startswith("mmproj-"))
 
-    def test_unsafe_characters_and_length(self):
+    def test_unsafe_characters_are_replaced(self):
         info = gguf.GGUFInfo(path=Path("p.gguf"), quant="F16")
-        name = mmproj.link_name("org name/model:v2 " + "x" * 100, info)
-        self.assertNotIn(" ", name)
-        self.assertNotIn(":", name)
-        self.assertLess(len(name), 90)
+        name = mmproj.link_name('org name/model:v2 <x>|y?z*w' + chr(92), info)
+        for char in ' <>:"|?*' + chr(92):
+            self.assertNotIn(char, name)
+        self.assertTrue(name.startswith("mmproj-"))
+        self.assertTrue(name.endswith("-F16.gguf"))
+
+    def test_non_ascii_names_are_kept(self):
+        # A repository name in kanji or hanzi is a legal file name; mangling
+        # it to dashes would throw away which repository the link came from.
+        info = gguf.GGUFInfo(path=Path("p.gguf"), quant="F16")
+        name = mmproj.link_name(chr(0x6A21) + chr(0x578B) + "/GGUF", info)
+        self.assertEqual(name, "mmproj-" + chr(0x6A21) + chr(0x578B) + "-GGUF-F16.gguf")
+
+    def test_the_name_stays_within_filesystem_limits(self):
+        info = gguf.GGUFInfo(path=Path("p.gguf"), quant="F16")
+        # Three bytes per character in UTF-8, so this repository name is
+        # 600 bytes before clipping.
+        name = mmproj.link_name(chr(0x6F22) * 200, info)
+        self.assertLessEqual(len(name.encode("utf-8")), 145)
+        self.assertEqual(name.encode("utf-8").decode("utf-8"), name)  # no split character
+
+    def test_a_name_that_sanitises_away_still_works(self):
+        info = gguf.GGUFInfo(path=Path("p.gguf"), quant="F16")
+        self.assertEqual(mmproj.link_name("///", info), "mmproj-source-F16.gguf")
 
 
 class AttachFixture(unittest.TestCase):

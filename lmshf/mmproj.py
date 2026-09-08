@@ -33,7 +33,12 @@ INCOMPATIBLE = "incompatible"
 KNOWN_FAMILIES = frozenset({"gemma", "qwen", "llama"})
 
 _LEADING_LETTERS = re.compile(r"[a-z]+")
-_UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
+# Characters no filesystem will take in a name. Everything else is kept:
+# a repository name in kanji or hanzi should stay readable in the link.
+_UNSAFE_CHARS = frozenset('<>:"/' + chr(92) + "|?*")
+# NTFS allows 255 UTF-16 units and ext4 255 bytes per component, and the
+# quantisation label and suffix still have to fit after this.
+_MAX_STEM_BYTES = 120
 
 
 def family(token):
@@ -93,16 +98,33 @@ def check(text, projector):
     return Compat(SUSPECT, "the sizes to compare could not be read")
 
 
+def _sanitise(text):
+    """Make `text` usable as one component of a file name."""
+    # Whitespace is legal in a file name but tedious to type at a shell, and
+    # these names get passed to --file.
+    swapped = "".join(
+        "-" if ch in _UNSAFE_CHARS or ch.isspace() or ord(ch) < 32 else ch for ch in text
+    )
+    # Windows also refuses a name that ends in a dot or a space.
+    return re.sub("-{2,}", "-", swapped).strip("-. ")
+
+
+def _clip(text, limit):
+    """Cut `text` so its UTF-8 form fits `limit` bytes, on a character boundary."""
+    encoded = text.encode("utf-8")
+    if len(encoded) <= limit:
+        return text
+    return encoded[:limit].decode("utf-8", "ignore")
+
+
 def link_name(repo, projector):
     """The name to give the linked projector inside the model directory.
 
     LM Studio keys off the "mmproj" substring, and the source repository is
     worth keeping visible, so the original name is not reused as is.
     """
-    stem = _UNSAFE.sub("-", repo.replace("/", "-")).strip("-")
-    if len(stem) > 64:
-        stem = stem[:64].rstrip("-")
-    return f"mmproj-{stem}-{projector.quant}.gguf"
+    stem = _sanitise(_clip(_sanitise(repo.replace("/", "-")), _MAX_STEM_BYTES))
+    return f"mmproj-{stem or 'source'}-{projector.quant}.gguf"
 
 
 def read_sidecar(model_dir):
