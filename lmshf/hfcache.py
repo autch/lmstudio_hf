@@ -66,3 +66,14 @@ def find_models(cache_dir):
         dirs[:] = [d for d in dirs if d not in prune]
 
     return found_models
+
+
+def gguf_files(cache_dir):
+    """Yield (repo name, path) for every .gguf file in every cached snapshot."""
+    for _model_type, name, snapshot in sorted(find_models(cache_dir)):
+        try:
+            paths = sorted(snapshot.glob("*.gguf"))
+        except OSError:
+            continue
+        for path in paths:
+            yield name, path

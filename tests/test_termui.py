@@ -1,6 +1,7 @@
 """Menu behaviour, driven by a scripted key sequence instead of a terminal."""
 
 import io
+import re
 import unittest
 from contextlib import redirect_stdout
 from unittest import mock
@@ -91,3 +92,26 @@ class RenderTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FitTest(unittest.TestCase):
+    def test_short_text_is_untouched(self):
+        self.assertEqual(termui.fit("abc", 10), "abc")
+
+    def test_long_text_is_cut_to_width(self):
+        cut = termui.fit("a" * 40, 10)
+        self.assertLessEqual(termui.display_width(cut), 10)
+        self.assertTrue(cut.endswith(termui.GLYPH_ELLIPSIS))
+
+    def test_cjk_counts_as_two_columns(self):
+        self.assertEqual(termui.display_width("次元不一致"), 10)
+        cut = termui.fit("次元不一致の疑いがあります", 10)
+        self.assertLessEqual(termui.display_width(cut), 10)
+
+    def test_rows_do_not_wrap(self):
+        rows = [Choice(label="x" * 200, detail="y" * 200, marked=True)]
+        _, out = run_menu(termui.select_one, rows, [termui.KEY_ENTER])
+        for line in out.splitlines():
+            # Colour codes take no columns, so measure what is actually shown.
+            visible = re.sub(chr(27) + "[[][0-9;]*[A-Za-z]", "", line)
+            self.assertLessEqual(termui.display_width(visible), 80)

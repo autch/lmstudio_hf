@@ -9,8 +9,12 @@ A command-line utility to manage models between your Hugging Face cache and LM S
 - Smart handling of model imports via links, never copies
 - Support for model removal and re-import
 - Terminal-based UI with scrolling for large model lists
-- Shows model type (e.g., llama, bert, gpt2) for easy identification
-- Already imported models are clearly marked and can be removed again
+- Reads GGUF headers, so quantisation, architecture and projector details are
+  shown even for repositories without a `config.json`
+- **Attaches a vision/audio projector (`mmproj`) from one repository to a model
+  from another**, which is what quantised derivatives usually need
+- Checks projector compatibility before linking anything
+- `doctor` reports models whose projector is missing, duplicated or mismatched
 
 ## Prerequisites
 
@@ -18,62 +22,103 @@ A command-line utility to manage models between your Hugging Face cache and LM S
 - LM Studio installed
 - Hugging Face models downloaded locally
 
-Works on macOS, Linux and Windows. See [Windows notes](#windows-notes) for the
-extra details that apply there.
+No third-party packages are needed; the tool is standard library only. It works
+on macOS, Linux and Windows. See [Windows notes](#windows-notes) for the extra
+details that apply there.
 
 ## Installation
 
 1. Clone this repository:
 ```bash
-git clone https://github.com/ivanfioravanti/lmstudio_hf.git
+git clone https://github.com/autch/lmstudio_hf.git
 cd lmstudio_hf
 ```
 
 ## Usage
 
-Run the script using Python:
-
 ```bash
-python lmstudio_hf.py
+python lmstudio_hf.py                 # import models (the default)
+python lmstudio_hf.py attach-mmproj   # attach a projector to a model
+python lmstudio_hf.py detach-mmproj --from <model>
+python lmstudio_hf.py doctor          # report projector problems
+python lmstudio_hf.py list            # show what LM Studio has
 ```
 
-### Using Custom Directories
+### Importing models
 
-You can customize the directories using environment variables:
+Running the tool with no arguments lists every model in the Hugging Face cache.
+Selecting a model links its snapshot into the LM Studio models directory;
+selecting one that is already imported removes it again.
+
+### Attaching a projector from another repository
+
+LM Studio pairs a text model with its projector by directory: the `mmproj` file
+has to sit next to the text GGUF, and its name has to contain `mmproj`. People
+publishing quantised derivatives frequently leave the projector out, so it has
+to be fetched from the repository the derivative came from — at which point it
+lands in a different folder and LM Studio shows the model as text-only.
+
+`attach-mmproj` links a projector from any cached repository into any model
+directory:
 
 ```bash
-# Custom Hugging Face cache directory
-export HF_HOME="/path/to/huggingface/cache"
-python lmstudio_hf.py
+# pick both ends interactively
+python lmstudio_hf.py attach-mmproj
 
-# Custom LM Studio models directory
-export LMSTUDIO_HOME="/path/to/lmstudio/models"
-python lmstudio_hf.py
-
-# Use XDG cache directory
-export XDG_CACHE_HOME="/path/to/cache"
-python lmstudio_hf.py
-
-# Combine multiple environment variables
-export HF_HOME="/custom/hf/cache"
-export LMSTUDIO_HOME="/custom/lmstudio/models"
-python lmstudio_hf.py
+# or name them
+python lmstudio_hf.py attach-mmproj \
+    --to   bartowski/Some-Gemma-4-Derivative-GGUF \
+    --from unsloth/gemma-4-31B-it-GGUF
 ```
 
-### Navigation Controls
+Useful options: `--file NAME` when the source repository holds more than one
+projector, `--dry-run` to see what would happen, `-y` to skip the confirmation,
+and `--force` to go ahead despite an incompatible verdict.
 
-- ↑/↓ arrows: Navigate through the model list
-- SPACE: Select/deselect a model
-- ENTER: Confirm selection and proceed with import
-- Ctrl+C: Cancel operation
+The projector is linked, never copied. The link is named
+`mmproj-<source repo>-<quantisation>.gguf` so that LM Studio recognises it and
+so its origin stays visible, and a `.lmstudio_hf.json` sidecar in the model
+directory records where it came from. `detach-mmproj` uses that record to
+remove exactly what was added.
 
-## How It Works
+If the directory already holds a projector it is cleared first — two of them in
+one folder leaves it undefined which one LM Studio picks. A projector this tool
+did not create is renamed to `*.gguf.disabled` rather than deleted.
+
+### Compatibility checking
+
+Before linking, the headers of both files are compared:
+
+| Verdict | Meaning |
+| --- | --- |
+| `[OK]` | Same architecture family, and the projector output matches the model's embedding width |
+| `[? ]` | Dimensions disagree, or one of them could not be read. Selectable, with a warning |
+| `[!!]` | Architecture families differ. Refused unless `--force` (or `f` in the menu) |
+
+This says whether a pair should *load*, not whether it will work *well*. Two
+things cannot be detected from metadata: a derivative that retrained its
+projector rather than freezing it, and a version mismatch inside one family.
+
+### Navigation controls
+
+- ↑/↓ arrows: move through the list
+- SPACE: select/deselect (import screen)
+- ENTER: confirm
+- `a`: show all models / only those that can take a projector
+- `f`: allow incompatible projectors to be selected
+- Ctrl+C: cancel
+
+## How it works
 
 1. The tool scans your Hugging Face cache directory (checks `HF_HOME`, `XDG_CACHE_HOME/huggingface`, or `~/.cache/huggingface`)
-2. Identifies all downloaded models, reading the model type from `config.json` when one is present
+2. Identifies all downloaded models, reading the model type from `config.json` when one is present and the architecture, quantisation and projector details from GGUF headers when they are not
 3. Creates links in the LM Studio models directory (see [Environment Variables](#environment-variables))
 4. Shows model type and import status for each model
 5. Marks already imported models, so selecting one removes it again
+
+Only the key/value block at the head of a GGUF file is read, and values that
+are not needed are skipped rather than decoded, so scanning a cache does not
+depend on how large the models are.
 
 ## Environment Variables
 
@@ -90,6 +135,22 @@ The tool refuses to run if the LM Studio models directory resolves to somewhere
 inside the Hugging Face cache, since it would then link models on top of their
 own source files.
 
+## Repository layout
+
+```
+lmstudio_hf.py     entry point
+lmshf/
+  cli.py           argument parsing and the interactive flows
+  termui.py        keypress input and the selection menu
+  paths.py         where the cache and the models directory are
+  links.py         symlink / junction / hard link creation and removal
+  hfcache.py       walking the Hugging Face cache
+  lmstudio.py      reading the LM Studio models directory
+  gguf.py          GGUF header reader
+  mmproj.py        projector compatibility, attach and detach
+tests/             standard library unittest suite
+```
+
 ## Windows notes
 
 - Creating symbolic links on Windows requires Developer Mode (Settings →
@@ -102,6 +163,15 @@ own source files.
   ever copied — avoiding a second copy of the weights is the point of the tool.
 - Box-drawing glyphs are replaced with ASCII equivalents when the console code
   page cannot encode them (e.g. `cp932`).
+
+## Tests
+
+```bash
+python -m unittest discover -s tests
+```
+
+The GGUF tests build files byte by byte rather than relying on models being
+present, so the suite runs anywhere.
 
 ## Notes
 
@@ -117,4 +187,4 @@ Feel free to open issues or submit pull requests for any improvements or bug fix
 
 ## License
 
-[MIT License](LICENSE) 
+[MIT License](LICENSE)

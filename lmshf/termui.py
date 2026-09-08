@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import shutil
 import sys
+import unicodedata
 
 from . import IS_WINDOWS
 
@@ -47,6 +48,28 @@ def _pick_glyphs(preferred, fallback):
 GLYPH_PROMPT = _pick_glyphs("❯", ">")
 GLYPH_CHECKED, GLYPH_UNCHECKED = _pick_glyphs(("◉", "○"), ("[x]", "[ ]"))
 GLYPH_ARROWS = _pick_glyphs("↑/↓", "Up/Down")
+GLYPH_ELLIPSIS = _pick_glyphs("…", "...")
+
+
+def display_width(text):
+    """Columns `text` occupies; CJK characters take two of them."""
+    return sum(2 if unicodedata.east_asian_width(ch) in "WF" else 1 for ch in text)
+
+
+def fit(text, width):
+    """Cut `text` to `width` columns so a row never wraps and breaks the layout."""
+    if width <= 0 or display_width(text) <= width:
+        return text
+    budget = width - display_width(GLYPH_ELLIPSIS)
+    out = []
+    used = 0
+    for ch in text:
+        step = 2 if unicodedata.east_asian_width(ch) in "WF" else 1
+        if used + step > budget:
+            break
+        out.append(ch)
+        used += step
+    return "".join(out) + GLYPH_ELLIPSIS
 
 
 def enable_ansi():
@@ -191,15 +214,17 @@ def _menu(choices, header, instructions, footer, multi, extra_keys, cursor):
     note = ""
     if instructions is None:
         instructions = _default_instructions(multi)
-    # A row is two lines when any choice carries a detail line.
-    row_height = 2 if any(c.detail for c in choices) else 1
+    # Detail text can itself run to two lines (a label plus a warning).
+    row_height = 1 + max(len(c.detail.splitlines()) for c in choices)
 
     while True:
         chrome = 3 + len(header.splitlines()) + (2 if footer else 0) + (1 if note else 0)
         # os.get_terminal_size() raises OSError on Windows when stdout is not a
         # console; shutil's variant falls back to a sane default instead.
-        window = max(1, (shutil.get_terminal_size().lines - chrome) // row_height)
-        _render(choices, header, instructions, footer, note, selected, idx, multi, window)
+        size = shutil.get_terminal_size()
+        window = max(1, (size.lines - chrome) // row_height)
+        _render(choices, header, instructions, footer, note, selected, idx, multi,
+                window, size.columns)
         note = ""
 
         try:
@@ -229,7 +254,8 @@ def _menu(choices, header, instructions, footer, multi, extra_keys, cursor):
             return Selection(key=key, cursor=idx)
 
 
-def _render(choices, header, instructions, footer, note, selected, idx, multi, window):
+def _render(choices, header, instructions, footer, note, selected, idx, multi,
+            window, columns=80):
     print("\033[H\033[J", end="")
     print(f"{GLYPH_PROMPT} {header}")
     print(instructions)
@@ -242,14 +268,16 @@ def _render(choices, header, instructions, footer, note, selected, idx, multi, w
             marker = GLYPH_CHECKED if selected[i] else GLYPH_UNCHECKED
         else:
             marker = GLYPH_CHECKED if i == idx else GLYPH_UNCHECKED
-        label = choice.label
+        # "> " + marker + " " sits in front of the label; the marker is
+        # three columns wide when the ASCII fallback glyphs are in use.
+        label = fit(choice.label, columns - 3 - display_width(marker))
         if choice.marked:
             label = f"{ANSI_RED}{label}{ANSI_RESET}"
         elif not choice.selectable:
             label = f"{ANSI_DIM}{label}{ANSI_RESET}"
         print(f"{'>' if i == idx else ' '} {marker} {label}")
-        if choice.detail:
-            print(f"      {ANSI_DIM}{choice.detail}{ANSI_RESET}")
+        for line in choice.detail.splitlines():
+            print(f"      {ANSI_DIM}{fit(line, columns - 6)}{ANSI_RESET}")
 
     if footer:
         print()
