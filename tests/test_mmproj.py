@@ -111,7 +111,7 @@ class LinkNameTest(unittest.TestCase):
         self.assertLess(len(name), 90)
 
 
-class AttachTest(unittest.TestCase):
+class AttachFixture(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
@@ -124,6 +124,8 @@ class AttachTest(unittest.TestCase):
         self.projector = gguf.inspect(self.source / "mmproj-F32.gguf")
         self.addCleanup(self.tmp.cleanup)
 
+
+class AttachTest(AttachFixture):
     def test_attach_links_and_records(self):
         name, method, moved = mmproj.attach(self.model_dir, self.projector, "upstream/base-GGUF")
         self.assertEqual(moved, [])
@@ -191,7 +193,7 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class MultipleProjectorsTest(AttachTest):
+class MultipleProjectorsTest(AttachFixture):
     def test_every_stray_projector_is_moved_aside(self):
         for name in ("mmproj-one-F16.gguf", "mmproj-two-F16.gguf"):
             (self.model_dir / name).write_bytes(projector_gguf(proj_dim=3840))
