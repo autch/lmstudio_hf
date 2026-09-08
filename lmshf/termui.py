@@ -1,20 +1,38 @@
+"""Terminal helpers: single keypress input and a scrolling selection menu.
+
+The menu knows nothing about models; callers hand it `Choice` rows and get
+back the indices they picked.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
 import shutil
 import sys
 
 from . import IS_WINDOWS
 
-# Logical keys returned by get_key()
+# Logical keys returned by get_key(). Any other printable character is
+# returned as itself (lowercased), so callers can offer extra commands.
 KEY_UP = "UP"
 KEY_DOWN = "DOWN"
 KEY_SPACE = "SPACE"
 KEY_ENTER = "ENTER"
 KEY_INTERRUPT = "INTERRUPT"
 KEY_OTHER = "OTHER"
+
+ANSI_RED = "\033[31m"
+ANSI_DIM = "\033[2m"
+ANSI_RESET = "\033[0m"
+
+NOT_SELECTABLE = "この行は選択できません。"
+
+
 def _pick_glyphs(preferred, fallback):
     """Return `preferred` if the current stdout encoding can render all of it.
 
-    The glyphs are chosen as a group so a partially encodable set (cp932 has ○
-    but not ◉, say) doesn't produce a mismatched pair.
+    The glyphs are chosen as a group so a partially encodable set (cp932 has
+    the empty circle but not the filled one, say) doesn't produce a mismatch.
     """
     encoding = sys.stdout.encoding or "ascii"
     try:
@@ -105,46 +123,84 @@ def _classify(ch):
         return KEY_ENTER
     if ch == "\x03":
         return KEY_INTERRUPT
+    if ch.isprintable():
+        # A bare character, so callers can bind extra commands. The KEY_*
+        # constants are multi-character, so they can never collide.
+        return ch.lower()
     return KEY_OTHER
 
 
-def select_models(model_choices):
+@dataclass
+class Choice:
+    """One row of a menu."""
+
+    label: str
+    detail: str = ""  # optional dimmed second line
+    marked: bool = False  # red: already imported, incompatible, ...
+    selectable: bool = True
+    value: object = None
+
+
+@dataclass
+class Selection:
+    """What a menu returned."""
+
+    indices: list = field(default_factory=list)
+    key: str = ""  # an extra key the caller asked to be told about
+    cursor: int = 0
+    cancelled: bool = False
+
+    @property
+    def index(self):
+        return self.indices[0] if self.indices else None
+
+
+def require_tty():
     # msvcrt reads the console directly, so without one it would block forever
     # rather than fail the way termios does.
     if not sys.stdin.isatty():
         print("This tool needs an interactive terminal.")
         sys.exit(1)
 
+
+def select_many(choices, header, instructions=None, footer=None, cursor=0, extra_keys=()):
+    """Multi-select menu; returns the indices whose rows were checked."""
+    return _menu(choices, header, instructions, footer, True, extra_keys, cursor)
+
+
+def select_one(choices, header, instructions=None, footer=None, cursor=0, extra_keys=()):
+    """Single-select menu; ENTER picks the row under the cursor."""
+    return _menu(choices, header, instructions, footer, False, extra_keys, cursor)
+
+
+def _default_instructions(multi):
+    # Callers that bind extra keys pass their own instruction line instead.
+    pick = "SPACE で選択, ENTER で確定" if multi else "ENTER で決定"
+    return f"{GLYPH_ARROWS} で移動, {pick}, Ctrl+C で中止"
+
+
+def _menu(choices, header, instructions, footer, multi, extra_keys, cursor):
+    require_tty()
     enable_ansi()
-    # Don't pre-select any models
-    selected = [False] * len(model_choices)
-    idx = 0
-    # os.get_terminal_size() raises OSError on Windows when stdout is not a
-    # console; shutil's variant falls back to a sane default instead.
-    window_size = max(1, shutil.get_terminal_size().lines - 5)
+
+    if not choices:
+        return Selection(cancelled=True)
+
+    selected = [False] * len(choices)
+    idx = max(0, min(cursor, len(choices) - 1))
+    note = ""
+    if instructions is None:
+        instructions = _default_instructions(multi)
+    # A row is two lines when any choice carries a detail line.
+    row_height = 2 if any(c.detail for c in choices) else 1
 
     while True:
-        print("\033[H\033[J", end="")
-        print(
-            f"{GLYPH_PROMPT} lm-studio - Hugging Face Model Manager \n"
-            f"Available models ({GLYPH_ARROWS} to navigate, SPACE to select, "
-            "ENTER to confirm, Ctrl+C to quit):"
-        )
-
-        window_start = max(0, min(idx - window_size + 3, len(model_choices) - window_size))
-        window_end = min(window_start + window_size, len(model_choices))
-
-        for i in range(window_start, window_end):
-            display_name, _, is_imported, _, _ = model_choices[i]
-            # Use red color for already imported models
-            if is_imported:
-                color = "\033[31m"  # Red
-                reset = "\033[0m"   # Reset color
-                display_text = f"{color}{display_name}{reset}"
-            else:
-                display_text = display_name
-            marker = GLYPH_CHECKED if selected[i] else GLYPH_UNCHECKED
-            print(f"{'>' if i == idx else ' '} {marker} {display_text}")
+        chrome = 3 + len(header.splitlines()) + (2 if footer else 0) + (1 if note else 0)
+        # os.get_terminal_size() raises OSError on Windows when stdout is not a
+        # console; shutil's variant falls back to a sane default instead.
+        window = max(1, (shutil.get_terminal_size().lines - chrome) // row_height)
+        _render(choices, header, instructions, footer, note, selected, idx, multi, window)
+        note = ""
 
         try:
             key = get_key()
@@ -154,13 +210,49 @@ def select_models(model_choices):
         if key == KEY_UP:
             idx = max(0, idx - 1)
         elif key == KEY_DOWN:
-            idx = min(len(model_choices) - 1, idx + 1)
-        elif key == KEY_SPACE:
-            selected[idx] = not selected[idx]
+            idx = min(len(choices) - 1, idx + 1)
+        elif key == KEY_SPACE and multi:
+            if choices[idx].selectable:
+                selected[idx] = not selected[idx]
+            else:
+                note = NOT_SELECTABLE
         elif key == KEY_ENTER:
-            break
+            if multi:
+                picked = [i for i, on in enumerate(selected) if on]
+                return Selection(indices=picked, cursor=idx)
+            if choices[idx].selectable:
+                return Selection(indices=[idx], cursor=idx)
+            note = NOT_SELECTABLE
         elif key == KEY_INTERRUPT:
-            print("\nImport is cancelled. Do nothing.")
-            sys.exit(0)
+            return Selection(cursor=idx, cancelled=True)
+        elif key in extra_keys:
+            return Selection(key=key, cursor=idx)
 
-    return [choice for choice, is_selected in zip(model_choices, selected) if is_selected]
+
+def _render(choices, header, instructions, footer, note, selected, idx, multi, window):
+    print("\033[H\033[J", end="")
+    print(f"{GLYPH_PROMPT} {header}")
+    print(instructions)
+    print()
+
+    start = max(0, min(idx - window + 3, len(choices) - window))
+    for i in range(start, min(start + window, len(choices))):
+        choice = choices[i]
+        if multi:
+            marker = GLYPH_CHECKED if selected[i] else GLYPH_UNCHECKED
+        else:
+            marker = GLYPH_CHECKED if i == idx else GLYPH_UNCHECKED
+        label = choice.label
+        if choice.marked:
+            label = f"{ANSI_RED}{label}{ANSI_RESET}"
+        elif not choice.selectable:
+            label = f"{ANSI_DIM}{label}{ANSI_RESET}"
+        print(f"{'>' if i == idx else ' '} {marker} {label}")
+        if choice.detail:
+            print(f"      {ANSI_DIM}{choice.detail}{ANSI_RESET}")
+
+    if footer:
+        print()
+        print(f"{ANSI_DIM}{footer}{ANSI_RESET}")
+    if note:
+        print(note)
