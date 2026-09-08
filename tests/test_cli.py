@@ -133,3 +133,55 @@ class ReportCommandTest(CliFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ImportCommandTest(CliFixture):
+    """The import flow, with the menu answered by a stub."""
+
+    def choose(self, *names):
+        from lmshf import cli
+
+        def fake_select_many(choices, header, instructions=None, **kwargs):
+            picked = [i for i, c in enumerate(choices)
+                      if any(name in c.label for name in names)]
+            return termui_selection(picked)
+
+        return mock.patch.object(cli, "select_many", side_effect=fake_select_many)
+
+    def test_import_links_a_snapshot(self):
+        with self.choose("gemma-4-31B-it"):
+            code, out = self.run_cli("import")
+        self.assertEqual(code, 0)
+        self.assertIn("Imported", out)
+        imported = self.lmstudio / "unsloth" / "gemma-4-31B-it-GGUF" / "mmproj-F32.gguf"
+        self.assertTrue(imported.exists())
+
+    def test_selecting_an_imported_model_removes_it(self):
+        with self.choose("gemma-4-31B-it"):
+            self.run_cli("import")
+        with self.choose("gemma-4-31B-it"):
+            code, out = self.run_cli("import")
+        self.assertEqual(code, 0)
+        self.assertIn("Removed", out)
+        self.assertFalse((self.lmstudio / "unsloth" / "gemma-4-31B-it-GGUF").exists())
+
+    def test_cancelling_changes_nothing(self):
+        from lmshf import cli
+        from lmshf.termui import Selection
+
+        with mock.patch.object(cli, "select_many", return_value=Selection(cancelled=True)):
+            code, out = self.run_cli("import")
+        self.assertEqual(code, 0)
+        self.assertIn("cancelled", out)
+        self.assertFalse((self.lmstudio / "unsloth").exists())
+
+    def test_refuses_to_import_into_the_cache_itself(self):
+        with mock.patch.dict(os.environ, {"LMSTUDIO_HOME": str(self.cache / "hub")}):
+            code, out = self.run_cli("import")
+        self.assertIn("Hugging Face", out)
+
+
+def termui_selection(indices):
+    from lmshf.termui import Selection
+
+    return Selection(indices=indices)

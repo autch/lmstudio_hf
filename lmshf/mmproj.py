@@ -165,16 +165,18 @@ def disable(path, ours=False):
 def attach(model_dir, projector, repo, compat=None):
     """Link `projector` into `model_dir` and record where it came from.
 
-    Returns (link name, link method, path the previous projector was moved to).
-    Any projector already in the directory is cleared first: two of them in
-    one directory leaves it undefined which one LM Studio picks up.
+    Returns (link name, link method, paths any previous projectors were moved
+    to). Every projector already in the directory is cleared first: two of
+    them leaves it undefined which one LM Studio picks up.
     """
     record = read_sidecar(model_dir)
     previous_name = (record.get("mmproj") or {}).get("link")
 
-    moved_aside = None
+    moved_aside = []
     for existing in projectors_in(model_dir):
-        moved_aside = disable(existing.path, ours=existing.path.name == previous_name)
+        backup = disable(existing.path, ours=existing.path.name == previous_name)
+        if backup is not None:
+            moved_aside.append(backup)
 
     name = link_name(repo, projector)
     destination = model_dir / name

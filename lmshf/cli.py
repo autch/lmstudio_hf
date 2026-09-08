@@ -335,8 +335,8 @@ def attach_command(args):
         print(f"\n失敗しました: {exc}")
         return 1
 
-    if moved:
-        print(f"\n既存の projector を {moved.name} に退避しました。")
+    for backup in moved:
+        print(f"\n既存の projector を {backup.name} に退避しました。")
     print(f"\nAttached mmproj to {target.name} ({method}ed)")
     print(f"  -> {name}")
     print("LM Studio でモデルを Eject して読み込み直してください。")

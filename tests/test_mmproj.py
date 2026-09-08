@@ -126,7 +126,7 @@ class AttachTest(unittest.TestCase):
 
     def test_attach_links_and_records(self):
         name, method, moved = mmproj.attach(self.model_dir, self.projector, "upstream/base-GGUF")
-        self.assertIsNone(moved)
+        self.assertEqual(moved, [])
         self.assertIn(method, ("symlink", "junction", "hardlink"))
         linked = self.model_dir / name
         self.assertTrue(linked.exists())
@@ -161,8 +161,7 @@ class AttachTest(unittest.TestCase):
         foreign = self.model_dir / "mmproj-original-F16.gguf"
         foreign.write_bytes(projector_gguf(proj_dim=3840))
         name, _, moved = mmproj.attach(self.model_dir, self.projector, "upstream/base-GGUF")
-        self.assertIsNotNone(moved)
-        self.assertEqual(moved.name, "mmproj-original-F16.gguf.disabled")
+        self.assertEqual([m.name for m in moved], ["mmproj-original-F16.gguf.disabled"])
         self.assertFalse(foreign.exists())
         # Exactly one projector is left for LM Studio to find.
         self.assertEqual([p.path.name for p in mmproj.projectors_in(self.model_dir)], [name])
@@ -174,7 +173,7 @@ class AttachTest(unittest.TestCase):
         second, _, moved = mmproj.attach(self.model_dir, gguf.inspect(other), "other/repo-GGUF")
 
         self.assertNotEqual(first, second)
-        self.assertIsNone(moved)  # ours is dropped, not kept as .disabled
+        self.assertEqual(moved, [])  # ours is dropped, not kept as .disabled
         self.assertFalse((self.model_dir / first).exists())
         self.assertEqual([p.path.name for p in mmproj.projectors_in(self.model_dir)], [second])
         self.assertEqual(mmproj.read_sidecar(self.model_dir)["mmproj"]["link"], second)
@@ -190,3 +189,22 @@ class AttachTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MultipleProjectorsTest(AttachTest):
+    def test_every_stray_projector_is_moved_aside(self):
+        for name in ("mmproj-one-F16.gguf", "mmproj-two-F16.gguf"):
+            (self.model_dir / name).write_bytes(projector_gguf(proj_dim=3840))
+        linked, _, moved = mmproj.attach(self.model_dir, self.projector, "upstream/base-GGUF")
+        self.assertEqual(sorted(m.name for m in moved),
+                         ["mmproj-one-F16.gguf.disabled", "mmproj-two-F16.gguf.disabled"])
+        self.assertEqual([p.path.name for p in mmproj.projectors_in(self.model_dir)], [linked])
+
+    def test_a_second_backup_does_not_overwrite_the_first(self):
+        first = self.model_dir / "mmproj-x.gguf"
+        first.write_bytes(projector_gguf(proj_dim=3840))
+        mmproj.attach(self.model_dir, self.projector, "upstream/base-GGUF")
+        first.write_bytes(projector_gguf(proj_dim=2816))
+        _, _, moved = mmproj.attach(self.model_dir, self.projector, "other/repo")
+        self.assertEqual([m.name for m in moved], ["mmproj-x.gguf.disabled2"])
+        self.assertTrue((self.model_dir / "mmproj-x.gguf.disabled").exists())
