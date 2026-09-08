@@ -82,7 +82,7 @@ class AttachCommandTest(CliFixture):
     def test_unknown_target(self):
         code, out = self.run_cli("attach-mmproj", "--to", "nope", "--from", "gemma", "-y")
         self.assertEqual(code, 1)
-        self.assertIn("見つかりません", out)
+        self.assertIn("is not in the LM Studio models directory", out)
 
     def test_ambiguous_target_is_reported(self):
         second = self.lmstudio / "other" / "Novelist-31B-GGUF-clone"
@@ -91,12 +91,12 @@ class AttachCommandTest(CliFixture):
         code, out = self.run_cli("attach-mmproj", "--to", "Novelist-31B",
                                  "--from", "gemma", "-y")
         self.assertEqual(code, 1)
-        self.assertIn("複数のモデルに一致", out)
+        self.assertIn("matches more than one model", out)
 
     def test_detach_without_an_attachment(self):
         code, out = self.run_cli("detach-mmproj", "--from", "Novelist-31B-GGUF")
         self.assertEqual(code, 1)
-        self.assertIn("ありません", out)
+        self.assertIn("has not attached", out)
 
 
 class ReportCommandTest(CliFixture):
@@ -104,23 +104,23 @@ class ReportCommandTest(CliFixture):
         code, out = self.run_cli("doctor")
         self.assertEqual(code, 0)
         self.assertIn("bartowski/Novelist-31B-GGUF", out)
-        self.assertIn("互換候補が 1 件", out)
+        self.assertIn("1 compatible one", out)
 
     def test_doctor_reports_a_second_projector(self):
         (self.model_dir / "mmproj-a.gguf").write_bytes(projector_gguf())
         (self.model_dir / "mmproj-b.gguf").write_bytes(projector_gguf())
         _, out = self.run_cli("doctor")
-        self.assertIn("projector が 2 つあります", out)
+        self.assertIn("2 projectors here", out)
 
     def test_doctor_flags_a_mismatched_projector(self):
         (self.model_dir / "mmproj-small.gguf").write_bytes(projector_gguf(proj_dim=3840))
         _, out = self.run_cli("doctor")
-        self.assertIn("次元不一致", out)
+        self.assertIn("size looks wrong", out)
 
     def test_doctor_flags_an_unreadable_file(self):
         (self.model_dir / "mmproj-broken.gguf").write_bytes(b"truncated")
         _, out = self.run_cli("doctor")
-        self.assertIn("読めません", out)
+        self.assertIn("cannot be read", out)
 
     def test_list_shows_the_attachment(self):
         self.run_cli("attach-mmproj", "--to", "Novelist-31B-GGUF",

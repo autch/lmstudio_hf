@@ -71,25 +71,26 @@ def check(text, projector):
     that froze it, and neither can a same-family version mismatch.
     """
     if not projector.is_projector:
-        return Compat(INCOMPATIBLE, "projector ではありません")
+        return Compat(INCOMPATIBLE, "not a projector")
     if text is None or not text.readable:
-        return Compat(SUSPECT, "本体の GGUF を読めないため判定できません")
+        return Compat(SUSPECT, "the model's own GGUF could not be read")
 
     text_family = family(text.arch)
     proj_family = family(projector.projector_type)
     if text_family and proj_family and text_family != proj_family:
         return Compat(
             INCOMPATIBLE,
-            f"アーキ不一致: 本体 {text.arch} に対し projector は {projector.projector_type}",
+            f"architecture mismatch: the model is {text.arch}, "
+            f"the projector is {projector.projector_type}",
         )
     if text.n_embd and projector.proj_dim:
         if text.n_embd != projector.proj_dim:
             return Compat(
                 SUSPECT,
-                f"次元不一致の疑い: proj_dim={projector.proj_dim} != n_embd={text.n_embd}",
+                f"size looks wrong: proj_dim={projector.proj_dim} != n_embd={text.n_embd}",
             )
         return Compat(OK)
-    return Compat(SUSPECT, "次元を確認できないため判定できません")
+    return Compat(SUSPECT, "the sizes to compare could not be read")
 
 
 def link_name(repo, projector):

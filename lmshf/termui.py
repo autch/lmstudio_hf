@@ -26,7 +26,7 @@ ANSI_RED = "\033[31m"
 ANSI_DIM = "\033[2m"
 ANSI_RESET = "\033[0m"
 
-NOT_SELECTABLE = "この行は選択できません。"
+NOT_SELECTABLE = "That row cannot be selected."
 
 
 def _pick_glyphs(preferred, fallback):
@@ -198,8 +198,8 @@ def select_one(choices, header, instructions=None, footer=None, cursor=0, extra_
 
 def _default_instructions(multi):
     # Callers that bind extra keys pass their own instruction line instead.
-    pick = "SPACE で選択, ENTER で確定" if multi else "ENTER で決定"
-    return f"{GLYPH_ARROWS} で移動, {pick}, Ctrl+C で中止"
+    pick = "SPACE to select, ENTER to confirm" if multi else "ENTER to choose"
+    return f"{GLYPH_ARROWS} to move, {pick}, Ctrl+C to quit"
 
 
 def _menu(choices, header, instructions, footer, multi, extra_keys, cursor):

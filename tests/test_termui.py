@@ -86,12 +86,8 @@ class RenderTest(unittest.TestCase):
         self.assertIn(termui.ANSI_RED, out)
 
     def test_footer_is_rendered(self):
-        _, out = run_menu(termui.select_one, ROWS, [termui.KEY_ENTER], footer="3 件中 2 件")
-        self.assertIn("3 件中 2 件", out)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        _, out = run_menu(termui.select_one, ROWS, [termui.KEY_ENTER], footer="2 of 3 shown")
+        self.assertIn("2 of 3 shown", out)
 
 
 class FitTest(unittest.TestCase):
@@ -104,9 +100,12 @@ class FitTest(unittest.TestCase):
         self.assertTrue(cut.endswith(termui.GLYPH_ELLIPSIS))
 
     def test_cjk_counts_as_two_columns(self):
-        self.assertEqual(termui.display_width("次元不一致"), 10)
-        cut = termui.fit("次元不一致の疑いがあります", 10)
-        self.assertLessEqual(termui.display_width(cut), 10)
+        # Model names and repository names are ASCII, but a path can hold
+        # anything, and a row that miscounts its width wraps and breaks the
+        # fixed-height window. The literals here are test data, not UI text.
+        wide = chr(0x4E00) * 5  # a full-width ideograph, two columns each
+        self.assertEqual(termui.display_width(wide), 10)
+        self.assertLessEqual(termui.display_width(termui.fit(wide * 3, 10)), 10)
 
     def test_rows_do_not_wrap(self):
         rows = [Choice(label="x" * 200, detail="y" * 200, marked=True)]

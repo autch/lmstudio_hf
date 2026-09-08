@@ -12,15 +12,15 @@ def _describe_model(model):
     """The dimmed second line for one LM Studio model row."""
     text = model.text
     if text is None:
-        return "テキストモデルなし (projector のみ)"
+        return "no text model (projector only)"
     arch = text.arch or "?"
     embd = f"n_embd={text.n_embd}" if text.n_embd else "n_embd=?"
     if model.projectors:
         projector = f"mmproj: {model.projectors[0].path.name}"
         if len(model.projectors) > 1:
-            projector += f" (他 {len(model.projectors) - 1} 件)"
+            projector += f" (and {len(model.projectors) - 1} more)"
     else:
-        projector = "mmproj: なし"
+        projector = "mmproj: none"
     return f"{arch}  {embd}  {text.quant}  {human_size(text.size)}  {projector}"
 
 
@@ -44,9 +44,9 @@ def _resolve_model(models, wanted):
     if len(matches) == 1:
         return matches[0]
     if not matches:
-        print(f"{wanted} は LM Studio のモデルディレクトリに見つかりません。")
+        print(f"{wanted} is not in the LM Studio models directory.")
     else:
-        print(f"{wanted} は複数のモデルに一致します:")
+        print(f"{wanted} matches more than one model:")
         for m in matches:
             print(f"  {m.name}")
     return None
@@ -57,10 +57,10 @@ def _resolve_projector(candidates, repo, file_name):
     if file_name:
         matches = [c for c in matches if c.info.path.name == file_name]
     if not matches:
-        print(f"{repo} に projector が見つかりません。")
+        print(f"No projector found in {repo}.")
         return None
     if len(matches) > 1:
-        print(f"{repo} には projector が複数あります。--file で選んでください:")
+        print(f"{repo} holds more than one projector; pick one with --file:")
         for c in matches:
             print(f"  {c.info.path.name}  ({c.info.projector_type}, {c.info.quant})")
         return None
@@ -80,20 +80,21 @@ def _choose_target(models, candidates):
     while True:
         rows = models if show_all else [m for m in models if _fits(m, candidates)]
         if not rows:
-            print("projector を追加できるモデルがありません。"
-                  " a で全件表示するか、doctor で状態を確認してください。")
+            print("No model here can take a projector."
+                  " Showing all of them; doctor explains what each one needs.")
             show_all = True
             rows = models
         choices = [
             Choice(label=m.name, detail=_describe_model(m), marked=m.has_projector)
             for m in rows
         ]
-        shown = "全モデル" if show_all else "projector 未配置かつ互換候補ありのみ"
+        shown = "all models" if show_all else "models missing a projector the cache can supply"
         result = select_one(
             choices,
-            header="lm-studio - attach mmproj  [1/2] 貼り付け先のモデル",
-            instructions=f"{GLYPH_ARROWS} で移動, ENTER で決定, a で表示切替, Ctrl+C で中止",
-            footer=f"[a] 表示中: {shown} ({len(models)} 件中 {len(rows)} 件)",
+            header="lm-studio - attach mmproj  [1/2] the model to attach to",
+            instructions=f"{GLYPH_ARROWS} to move, ENTER to choose, a to switch view, "
+                         "Ctrl+C to quit",
+            footer=f"[a] showing: {shown} ({len(rows)} of {len(models)})",
             cursor=min(cursor, max(0, len(rows) - 1)),
             extra_keys="a",
         )
@@ -125,13 +126,15 @@ def _choose_projector(candidates, target):
             )
             for c, compat in checked
         ]
-        header = ("lm-studio - attach mmproj  [2/2] 使用する projector\n"
-                  f"  貼り付け先: {target.name}")
-        footer = "[f] 非互換も選択可能にする" if not allow_all else "非互換も選択できます (--force 相当)"
+        header = ("lm-studio - attach mmproj  [2/2] the projector to use\n"
+                  f"  attaching to: {target.name}")
+        footer = ("incompatible projectors can be selected (same as --force)" if allow_all
+                  else "[f] allow incompatible projectors to be selected")
         result = select_one(
             choices,
             header=header,
-            instructions=f"{GLYPH_ARROWS} で移動, ENTER で決定, f で非互換も選択可, Ctrl+C で中止",
+            instructions=f"{GLYPH_ARROWS} to move, ENTER to choose, f to allow incompatible, "
+                         "Ctrl+C to quit",
             footer=footer,
             cursor=cursor,
             extra_keys="f",
@@ -147,18 +150,18 @@ def _choose_projector(candidates, target):
 
 def _print_plan(target, candidate, compat, name):
     info = candidate.info
-    print("\n以下を実行します:\n")
-    print(f"  貼り付け先        {target.path}")
-    print(f"  作成するリンク名  {name}")
-    print(f"  リンク先          {info.path.resolve()}")
+    print("\nAbout to do this:\n")
+    print(f"  model directory   {target.path}")
+    print(f"  link to create    {name}")
+    print(f"  pointing at       {info.path.resolve()}")
     print(f"                    ({human_size(info.size)}, {info.projector_type or '?'},"
           f" {'+'.join(info.modalities) or '?'})")
     if compat.reason:
-        print(f"  判定              {compat.marker} {compat.reason}")
+        print(f"  verdict           {compat.marker} {compat.reason}")
     for existing in target.projectors:
-        print(f"  既存の projector  {existing.path.name} を退避または削除します")
-    print("\n  ※ コピーは発生しません。")
-    print("  ※ LM Studio でモデルを一度 Eject して読み込み直してください。")
+        print(f"  in the way        {existing.path.name} will be moved aside or dropped")
+    print("\n  Nothing is copied.")
+    print("  Eject the model in LM Studio and load it again afterwards.")
 
 
 def attach_command(args):
@@ -167,11 +170,11 @@ def attach_command(args):
 
     models = lmstudio.scan(lm_studio_dir)
     if not models:
-        print(f"{lm_studio_dir} にモデルがありません。")
+        print(f"No models in {lm_studio_dir}.")
         return 1
     candidates = mmproj.available(cache_dir)
     if not candidates:
-        print(f"{cache_dir} に projector (mmproj) が見つかりません。")
+        print(f"No projector (mmproj) found in {cache_dir}.")
         return 1
 
     if args.to:
@@ -181,7 +184,7 @@ def attach_command(args):
     else:
         target = _choose_target(models, candidates)
         if target is None:
-            print("\n中止しました。")
+            print("\nCancelled.")
             return 0
 
     if args.source:
@@ -192,13 +195,13 @@ def attach_command(args):
     else:
         candidate, compat = _choose_projector(candidates, target)
         if candidate is None:
-            print("\n中止しました。")
+            print("\nCancelled.")
             return 0
 
     if compat.blocked and not args.force:
-        print("\n互換性がありません。")
+        print("\nThese two are not compatible.")
         print(f"  {compat.reason}")
-        print("  意図的な場合は --force を付けてください。")
+        print("  Pass --force if you meant it.")
         return 1
 
     name = mmproj.link_name(candidate.repo, candidate.info)
@@ -207,24 +210,24 @@ def attach_command(args):
         return 0
     if not args.yes:
         try:
-            answer = input("\n続行しますか? [y/N]: ")
+            answer = input("\nGo ahead? [y/N]: ")
         except EOFError:
             answer = ""
         if answer.strip().lower() not in ("y", "yes"):
-            print("中止しました。")
+            print("Cancelled.")
             return 0
 
     try:
         name, method, moved = mmproj.attach(target.path, candidate.info, candidate.repo, compat)
     except OSError as exc:
-        print(f"\n失敗しました: {exc}")
+        print(f"\nFailed: {exc}")
         return 1
 
     for backup in moved:
-        print(f"\n既存の projector を {backup.name} に退避しました。")
+        print(f"\nMoved the projector that was there to {backup.name}.")
     print(f"\nAttached mmproj to {target.name} ({method}ed)")
     print(f"  -> {name}")
-    print("LM Studio でモデルを Eject して読み込み直してください。")
+    print("Eject the model in LM Studio and load it again.")
     return 0
 
 
@@ -236,18 +239,18 @@ def detach_command(args):
 
     record = target.attached
     if not record:
-        print(f"{target.name} にこのツールが追加した projector はありません。")
+        print(f"This tool has not attached a projector to {target.name}.")
         for existing in target.projectors:
-            print(f"  {existing.path.name} はこのツール以外が置いたものです。")
+            print(f"  {existing.path.name} was put there by something else.")
         return 1
 
     try:
         name = mmproj.detach(target.path)
     except OSError as exc:
-        print(f"失敗しました: {exc}")
+        print(f"Failed: {exc}")
         return 1
     print(f"Detached {name}")
-    print(f"  ({record.get('source_repo')} 由来のリンクを削除しました)")
+    print(f"  (the link came from {record.get('source_repo')})")
     return 0
 
 
@@ -256,15 +259,15 @@ def _model_issues(model, candidates):
     issues = []
     for info in model.projectors + ([model.text] if model.text else []) + model.extras:
         if not info.readable:
-            issues.append(f"{info.path.name} を読めません: {info.error}")
+            issues.append(f"{info.path.name} cannot be read: {info.error}")
 
     if len(model.projectors) > 1:
         names = ", ".join(p.path.name for p in model.projectors)
-        issues.append(f"projector が {len(model.projectors)} つあります: {names}")
+        issues.append(f"{len(model.projectors)} projectors here: {names}")
 
     if model.text is None:
         if model.projectors:
-            issues.append("テキストモデルがありません (projector のみのフォルダ)")
+            issues.append("no text model (a projector-only folder)")
         return issues
 
     for projector in model.projectors:
@@ -277,19 +280,20 @@ def _model_issues(model, candidates):
     if not model.projectors:
         fits = [c for c in candidates if mmproj.check(model.text, c.info).verdict == mmproj.OK]
         if fits:
+            plural = "" if len(fits) == 1 else "s"
             issues.append(
-                f"projector がありません。キャッシュに互換候補が {len(fits)} 件あります "
-                f"(attach-mmproj で追加できます)"
+                f"no projector; the cache holds {len(fits)} compatible one{plural} "
+                f"(attach-mmproj can link one in)"
             )
     return issues
 
 
 def doctor_command(args):
     lm_studio_dir = lm_studio_models_dir()
-    print(f"{lm_studio_dir} を検査中...")
+    print(f"Checking {lm_studio_dir} ...")
     models = lmstudio.scan(lm_studio_dir)
     candidates = mmproj.available(hf_cache_dir())
-    print(f"{len(models)} モデル, キャッシュ内の projector {len(candidates)} 件\n")
+    print(f"{len(models)} models, {len(candidates)} projectors in the cache\n")
 
     clean = 0
     for model in models:
@@ -300,7 +304,7 @@ def doctor_command(args):
         print(f"[!] {model.name}")
         for issue in issues:
             print(f"      {issue}")
-    print(f"\n[ok] 残り {clean} モデルは問題なし")
+    print(f"\n[ok] the other {clean} models look fine")
     return 0
 
 
