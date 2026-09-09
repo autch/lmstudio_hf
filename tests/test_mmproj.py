@@ -263,3 +263,25 @@ class NormalisationTest(AttachFixture):
 
     def test_find_named_returns_none_when_it_is_really_absent(self):
         self.assertIsNone(mmproj.find_named(self.model_dir, "mmproj-nowhere.gguf"))
+
+
+class AvailableProgressTest(unittest.TestCase):
+    def test_every_cached_gguf_is_counted_and_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp)
+            snapshot = cache / "hub" / "models--org--M-GGUF" / "snapshots" / "aa"
+            snapshot.mkdir(parents=True)
+            (snapshot / "M-Q4_K_M.gguf").write_bytes(
+                (Path(__file__).parent / "dummy").name.encode())  # not a GGUF
+            (snapshot / "mmproj-F16.gguf").write_bytes(projector_gguf())
+
+            from test_lmstudio import Recorder
+
+            recorder = Recorder()
+            found = mmproj.available(cache, recorder)
+
+        # A file that cannot be read is still one the scan had to open.
+        self.assertEqual(recorder.total, 2)
+        self.assertEqual(len(recorder.notes), 2)
+        self.assertTrue(all("org/M-GGUF" in note for note in recorder.notes))
+        self.assertEqual(len(found), 1)

@@ -93,15 +93,18 @@ def gguf_files(path):
         return []
 
 
-def describe(name, path):
+def describe(name, path, paths=None, progress=None):
     """Read every GGUF in one model directory and sort out what it holds."""
     model = LmModel(name=name, path=path)
-    paths = gguf_files(path)
+    if paths is None:
+        paths = gguf_files(path)
     model.nested = [p for p in paths if p.parent != path]
 
     models = []
     parts = []
     for gguf_path in paths:
+        if progress is not None:
+            progress.step(f"{name}  {gguf_path.name}")
         info = gguf.inspect(gguf_path)
         parts.append(info)
         if info.is_projector:
@@ -118,6 +121,12 @@ def describe(name, path):
     return model
 
 
-def scan(lm_studio_dir):
+def scan(lm_studio_dir, progress=None):
     """Describe every model directory under the LM Studio models directory."""
-    return [describe(name, path) for name, path in sorted(existing_models(lm_studio_dir).items())]
+    # Listing the files is cheap; reading their headers is what takes time,
+    # so the count is known before any of the waiting starts.
+    entries = [(name, path, gguf_files(path))
+               for name, path in sorted(existing_models(lm_studio_dir).items())]
+    if progress is not None:
+        progress.start(sum(len(paths) for _, _, paths in entries))
+    return [describe(name, path, paths, progress) for name, path, paths in entries]

@@ -5,7 +5,19 @@ from __future__ import annotations
 from . import lmstudio, mmproj
 from .gguf import human_size
 from .paths import hf_cache_dir, lm_studio_models_dir
-from .termui import GLYPH_ARROWS, Choice, select_one
+from .termui import GLYPH_ARROWS, Choice, Progress, select_one
+
+
+def scan_models(lm_studio_dir):
+    """Every LM Studio model, reporting which header is being read."""
+    with Progress("Reading models in LM Studio") as progress:
+        return lmstudio.scan(lm_studio_dir, progress)
+
+
+def scan_projectors(cache_dir):
+    """Every projector in the cache, reporting which header is being read."""
+    with Progress("Looking through the Hugging Face cache") as progress:
+        return mmproj.available(cache_dir, progress)
 
 
 def _describe_model(model):
@@ -168,11 +180,11 @@ def attach_command(args):
     cache_dir = hf_cache_dir()
     lm_studio_dir = lm_studio_models_dir()
 
-    models = lmstudio.scan(lm_studio_dir)
+    models = scan_models(lm_studio_dir)
     if not models:
         print(f"No models in {lm_studio_dir}.")
         return 1
-    candidates = mmproj.available(cache_dir)
+    candidates = scan_projectors(cache_dir)
     if not candidates:
         print(f"No projector (mmproj) found in {cache_dir}.")
         return 1
@@ -232,7 +244,7 @@ def attach_command(args):
 
 
 def detach_command(args):
-    models = lmstudio.scan(lm_studio_models_dir())
+    models = scan_models(lm_studio_models_dir())
     target = _resolve_model(models, args.source)
     if target is None:
         return 1
@@ -298,8 +310,8 @@ def _model_issues(model, candidates):
 def doctor_command(args):
     lm_studio_dir = lm_studio_models_dir()
     print(f"Checking {lm_studio_dir} ...")
-    models = lmstudio.scan(lm_studio_dir)
-    candidates = mmproj.available(hf_cache_dir())
+    models = scan_models(lm_studio_dir)
+    candidates = scan_projectors(hf_cache_dir())
     print(f"{len(models)} models, {len(candidates)} projectors in the cache\n")
 
     clean = 0
@@ -316,7 +328,7 @@ def doctor_command(args):
 
 
 def list_command(args):
-    for model in lmstudio.scan(lm_studio_models_dir()):
+    for model in scan_models(lm_studio_models_dir()):
         print(model.name)
         print(f"    {_describe_model(model)}")
         record = model.attached

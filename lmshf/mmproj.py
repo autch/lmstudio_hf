@@ -280,12 +280,20 @@ class Candidate:
         return f"{self.repo} :: {self.info.path.name}"
 
 
-def available(cache_dir):
+def available(cache_dir, progress=None):
     """Every projector in the cache, whatever its file happens to be called."""
     from .hfcache import gguf_files
 
+    # A file name says nothing reliable about being a projector, so every
+    # GGUF in the cache has to be opened. Collect them first for the count.
+    entries = list(gguf_files(cache_dir))
+    if progress is not None:
+        progress.start(len(entries))
+
     found = []
-    for repo, path in gguf_files(cache_dir):
+    for repo, path in entries:
+        if progress is not None:
+            progress.step(f"{repo}  {path.name}")
         info = gguf.inspect(path)
         if info.is_projector:
             found.append(Candidate(repo, info))

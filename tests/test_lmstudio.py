@@ -117,3 +117,44 @@ class ImportPlanTest(unittest.TestCase):
         plan = self.plan()
         self.assertEqual(plan["model.gguf"].parent, self.snapshot)
         self.assertEqual(plan["IQ4_XS-model.gguf"].parent, self.snapshot / "IQ4_XS")
+
+
+class Recorder:
+    """Stands in for termui.Progress and remembers what it was told."""
+
+    def __init__(self):
+        self.total = None
+        self.notes = []
+
+    def start(self, total):
+        self.total = total
+
+    def step(self, note=""):
+        self.notes.append(note)
+
+
+class ProgressReportingTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    def test_scan_counts_the_files_before_reading_any(self):
+        for name in ("A-GGUF", "B-GGUF"):
+            model = self.root / "org" / name
+            model.mkdir(parents=True)
+            (model / "m-Q4_K_M.gguf").write_bytes(text_gguf())
+        (self.root / "org" / "B-GGUF" / "mmproj.gguf").write_bytes(projector_gguf())
+
+        recorder = Recorder()
+        lmstudio.scan(self.root, recorder)
+        self.assertEqual(recorder.total, 3)
+        self.assertEqual(len(recorder.notes), 3)
+        self.assertTrue(all("org/" in note for note in recorder.notes))
+        self.assertIn("mmproj.gguf", " ".join(recorder.notes))
+
+    def test_scan_without_a_progress_still_works(self):
+        model = self.root / "org" / "A-GGUF"
+        model.mkdir(parents=True)
+        (model / "m-Q4_K_M.gguf").write_bytes(text_gguf())
+        self.assertEqual(len(lmstudio.scan(self.root)), 1)

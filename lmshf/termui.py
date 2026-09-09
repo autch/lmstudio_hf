@@ -305,3 +305,50 @@ def _render(choices, header, instructions, footer, note, selected, idx, multi,
         print(f"{ANSI_DIM}{footer}{ANSI_RESET}")
     if note:
         print(note)
+
+
+class Progress:
+    """A one-line report of what is being read, erased when it finishes.
+
+    Reading a GGUF header means walking past the tokenizer block, so a scan
+    of a models directory takes a second or two with nothing on screen. This
+    says which file is being read while that happens.
+
+    It draws only to a terminal, so piping the output stays clean.
+    """
+
+    def __init__(self, label, stream=None):
+        self.label = label
+        self.stream = stream if stream is not None else sys.stdout
+        self.total = 0
+        self.count = 0
+        self.drawn = 0
+        self.active = bool(getattr(self.stream, "isatty", lambda: False)())
+
+    def start(self, total):
+        """Tell the bar how many steps to expect, once that is known."""
+        self.total = total
+
+    def step(self, note=""):
+        self.count += 1
+        if not self.active:
+            return
+        counter = f"{self.count}/{self.total}" if self.total else str(self.count)
+        text = fit(f"{self.label}  {counter}  {note}",
+                   shutil.get_terminal_size().columns - 1)
+        width = display_width(text)
+        self.stream.write("\r" + text + " " * max(0, self.drawn - width))
+        self.stream.flush()
+        self.drawn = width
+
+    def close(self):
+        if self.active and self.drawn:
+            self.stream.write("\r" + " " * self.drawn + "\r")
+            self.stream.flush()
+        self.drawn = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()

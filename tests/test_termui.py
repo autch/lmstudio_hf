@@ -2,6 +2,7 @@
 
 import io
 import re
+import shutil
 import sys
 import unittest
 from contextlib import redirect_stdout
@@ -157,3 +158,62 @@ class CombiningMarkTest(unittest.TestCase):
     def test_fit_measures_decomposed_text_the_same_way(self):
         decomposed = (chr(0x30AB) + chr(0x3099)) * 10
         self.assertLessEqual(termui.display_width(termui.fit(decomposed, 10)), 10)
+
+
+class ProgressTest(unittest.TestCase):
+    CR = chr(13)
+
+    class FakeTty(io.StringIO):
+        def isatty(self):
+            return True
+
+    def test_nothing_is_written_when_the_output_is_not_a_terminal(self):
+        plain = io.StringIO()  # StringIO.isatty() is False
+        with termui.Progress("Reading", stream=plain) as bar:
+            bar.start(2)
+            bar.step("one.gguf")
+            bar.step("two.gguf")
+        self.assertEqual(plain.getvalue(), "")
+
+    def test_a_terminal_gets_a_counter_and_the_current_item(self):
+        tty = self.FakeTty()
+        with termui.Progress("Reading", stream=tty) as bar:
+            bar.start(2)
+            bar.step("one.gguf")
+            bar.step("two.gguf")
+        frames = [f for f in tty.getvalue().split(self.CR) if f.strip()]
+        self.assertEqual(len(frames), 2)
+        self.assertIn("Reading  1/2  one.gguf", frames[0])
+        self.assertIn("Reading  2/2  two.gguf", frames[1])
+
+    def test_the_line_is_erased_at_the_end(self):
+        tty = self.FakeTty()
+        with termui.Progress("Reading", stream=tty) as bar:
+            bar.start(1)
+            bar.step("one.gguf")
+        self.assertTrue(tty.getvalue().endswith(self.CR))
+        self.assertEqual(tty.getvalue().split(self.CR)[-2].strip(), "")
+
+    def test_a_shorter_line_covers_what_the_last_one_left(self):
+        tty = self.FakeTty()
+        with termui.Progress("Reading", stream=tty) as bar:
+            bar.start(2)
+            bar.step("a-very-long-file-name-indeed.gguf")
+            bar.step("s.gguf")
+        first, second = [f for f in tty.getvalue().split(self.CR) if f.strip()][:2]
+        self.assertGreaterEqual(len(second), len(first))
+
+    def test_it_works_without_a_total(self):
+        tty = self.FakeTty()
+        with termui.Progress("Reading", stream=tty) as bar:
+            bar.step("one.gguf")
+        self.assertIn("Reading  1  one.gguf", tty.getvalue())
+
+    def test_a_long_line_is_cut_to_the_terminal_width(self):
+        tty = self.FakeTty()
+        size = shutil.os.terminal_size((40, 24))
+        with mock.patch("shutil.get_terminal_size", return_value=size):
+            with termui.Progress("Reading", stream=tty) as bar:
+                bar.step("x" * 200)
+        drawn = tty.getvalue().split(self.CR)[1]
+        self.assertLessEqual(termui.display_width(drawn), 39)

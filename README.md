@@ -195,6 +195,10 @@ present, so the suite runs anywhere.
 - Nothing is selected when the list opens; selecting an already imported model and
   confirming removes it from LM Studio
 - Model types are displayed in parentheses (e.g., `(llama)`, `(bert)`, `(gpt2)`)
+- Commands that compare models against the cache have to open a GGUF header
+  per file, which takes a couple of seconds. A progress line names the file
+  being read and erases itself afterwards; it is drawn only to a terminal, so
+  piped output is unchanged
 - Sizes are decimal (65.4GB, not 60.9GiB), so they line up with what LM Studio
   and the Hugging Face Hub show. A split model is reported as the sum of its
   parts
