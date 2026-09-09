@@ -12,7 +12,7 @@ def _describe_model(model):
     """The dimmed second line for one LM Studio model row."""
     text = model.text
     if text is None:
-        return "no text model (projector only)"
+        return "projector only, no text model" if model.projectors else "no GGUF here"
     arch = text.arch or "?"
     embd = f"n_embd={text.n_embd}" if text.n_embd else "n_embd=?"
     if model.projectors:
@@ -21,7 +21,7 @@ def _describe_model(model):
             projector += f" (and {len(model.projectors) - 1} more)"
     else:
         projector = "mmproj: none"
-    return f"{arch}  {embd}  {text.quant}  {human_size(text.size)}  {projector}"
+    return f"{arch}  {embd}  {text.quant}  {human_size(model.size)}  {projector}"
 
 
 def _describe_projector(candidate, compat=None):
@@ -260,6 +260,13 @@ def _model_issues(model, candidates):
     for info in model.projectors + ([model.text] if model.text else []) + model.extras:
         if not info.readable:
             issues.append(f"{info.path.name} cannot be read: {info.error}")
+
+    if model.nested:
+        where = ", ".join(sorted({p.parent.name for p in model.nested}))
+        issues.append(
+            f"GGUF files sit one directory deeper than LM Studio expects ({where}); "
+            f"LM Studio indexes them under the directory name. Re-import to flatten"
+        )
 
     if len(model.projectors) > 1:
         names = ", ".join(p.path.name for p in model.projectors)

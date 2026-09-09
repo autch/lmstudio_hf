@@ -192,12 +192,17 @@ def quant_label(file_type, name=""):
 
 
 def human_size(size):
+    """Decimal units, the way LM Studio and the Hugging Face Hub show sizes.
+
+    Reporting 60.9GB for a model LM Studio calls 65.4 GB makes the two
+    impossible to line up, which is the main thing these numbers are for.
+    """
     if not size:
         return "?"
     for unit in ("B", "KB", "MB", "GB", "TB"):
-        if size < 1024 or unit == "TB":
+        if size < 1000 or unit == "TB":
             return f"{size:.0f}{unit}" if unit == "B" else f"{size:.1f}{unit}"
-        size /= 1024
+        size /= 1000
     return "?"
 
 

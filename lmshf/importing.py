@@ -36,13 +36,54 @@ def _candidates(found_models, lm_studio_dir):
     return candidates
 
 
+def import_plan(snapshot):
+    """The (source, link name) pairs to create for one snapshot.
+
+    Some repositories give each quantisation its own subdirectory. LM Studio
+    indexes a model by its path under the models directory and expects
+    publisher/repo/file.gguf, so linking such a directory as it stands puts
+    the model one level too deep and LM Studio names it after the directory
+    ("iq4_xs") instead of after the model. Those GGUF files are flattened
+    into the model directory; every other entry is linked as it is.
+    """
+    try:
+        items = sorted(snapshot.iterdir())
+    except OSError:
+        return []
+
+    entries = []
+    nested = []
+    for item in items:
+        if item.is_dir():
+            contained = sorted(item.glob("*.gguf"))
+            if contained:
+                nested.append((item, contained))
+                continue
+        entries.append((item, item.name))
+
+    taken = {name for _, name in entries}
+    claims = {}
+    for directory, contained in nested:
+        for path in contained:
+            claims.setdefault(path.name, []).append((directory, path))
+
+    for name, holders in sorted(claims.items()):
+        # Two quantisation directories can hold the same file name. Prefix
+        # every one of them rather than only the later ones, so the same
+        # repository never yields "model.gguf" next to "Q5_K_M-model.gguf".
+        prefix = len(holders) > 1 or name in taken
+        for directory, path in holders:
+            entries.append((path, f"{directory.name}-{name}" if prefix else name))
+    return entries
+
+
 def _import_model(candidate):
     """Link every file of the snapshot into the LM Studio models directory."""
     candidate.target.mkdir(parents=True, exist_ok=True)
     method = "symlink"
     try:
-        for item in candidate.snapshot.iterdir():
-            method = link_into(item, candidate.target / item.name)
+        for source, name in import_plan(candidate.snapshot):
+            method = link_into(source, candidate.target / name)
     except OSError as exc:
         print(f"Failed to import {candidate.name}: {exc}")
         # Don't leave a half-linked model behind for LM Studio to find.

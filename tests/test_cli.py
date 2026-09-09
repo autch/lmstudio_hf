@@ -10,6 +10,7 @@ from unittest import mock
 
 from lmshf import mmproj
 from lmshf.cli import main
+from test_lmstudio import split_shard
 from test_mmproj import projector_gguf, text_gguf
 
 
@@ -38,6 +39,16 @@ class CliFixture(unittest.TestCase):
         patcher = mock.patch.dict(os.environ, env)
         patcher.start()
         self.addCleanup(patcher.stop)
+
+    def choose(self, *names):
+        from lmshf import importing
+
+        def fake_select_many(choices, header, instructions=None, **kwargs):
+            picked = [i for i, c in enumerate(choices)
+                      if any(name in c.label for name in names)]
+            return termui_selection(picked)
+
+        return mock.patch.object(importing, "select_many", side_effect=fake_select_many)
 
     def run_cli(self, *argv):
         buf = io.StringIO()
@@ -138,16 +149,6 @@ if __name__ == "__main__":
 class ImportCommandTest(CliFixture):
     """The import flow, with the menu answered by a stub."""
 
-    def choose(self, *names):
-        from lmshf import importing
-
-        def fake_select_many(choices, header, instructions=None, **kwargs):
-            picked = [i for i, c in enumerate(choices)
-                      if any(name in c.label for name in names)]
-            return termui_selection(picked)
-
-        return mock.patch.object(importing, "select_many", side_effect=fake_select_many)
-
     def test_import_links_a_snapshot(self):
         with self.choose("gemma-4-31B-it"):
             code, out = self.run_cli("import")
@@ -231,3 +232,50 @@ class NonAsciiNamesTest(CliFixture):
         self.assertIn(self.KANJI, out)
         _, out = self.run_cli("list")
         self.assertIn(self.HANZI, out)
+
+
+class NestedQuantisationRepoTest(CliFixture):
+    """Repositories that give each quantisation its own directory."""
+
+    def setUp(self):
+        super().setUp()
+        snapshot = (self.cache / "hub" / "models--Aratako--Amaterasu-123B-GGUF"
+                    / "snapshots" / "dd")
+        self.quant_dir = snapshot / "IQ4_XS"
+        self.quant_dir.mkdir(parents=True)
+        for part in (1, 2):
+            (self.quant_dir / f"Amaterasu-123B-IQ4_XS-0000{part}-of-00002.gguf").write_bytes(
+                split_shard(part, 2, file_type=30))  # 30 is IQ4_XS
+        (snapshot / "README.md").write_text("hi", encoding="utf-8")
+        self.target = self.lmstudio / "Aratako" / "Amaterasu-123B-GGUF"
+
+    def test_import_puts_the_files_where_lm_studio_looks(self):
+        with self.choose("Amaterasu"):
+            code, out = self.run_cli("import")
+        self.assertEqual(code, 0, out)
+        # Flat, so the model is indexed as Aratako/Amaterasu-123B-GGUF/<file>
+        # rather than .../IQ4_XS/<file>, which LM Studio names "iq4_xs".
+        self.assertEqual(
+            sorted(p.name for p in self.target.glob("*.gguf")),
+            ["Amaterasu-123B-IQ4_XS-00001-of-00002.gguf",
+             "Amaterasu-123B-IQ4_XS-00002-of-00002.gguf"],
+        )
+        self.assertFalse((self.target / "IQ4_XS").exists())
+        self.assertTrue((self.target / "README.md").exists())
+
+    def test_the_imported_model_reads_back_whole(self):
+        with self.choose("Amaterasu"):
+            self.run_cli("import")
+        code, out = self.run_cli("list")
+        self.assertEqual(code, 0)
+        self.assertIn("Aratako/Amaterasu-123B-GGUF", out)
+        self.assertIn("IQ4_XS", out)
+
+    def test_doctor_flags_a_directory_that_was_not_flattened(self):
+        # What a hand-made copy, or an older version of this tool, leaves.
+        nested = self.target / "IQ4_XS"
+        nested.mkdir(parents=True)
+        (nested / "Amaterasu-123B-IQ4_XS-00001-of-00002.gguf").write_bytes(split_shard(1, 2))
+        _, out = self.run_cli("doctor")
+        self.assertIn("one directory deeper", out)
+        self.assertIn("IQ4_XS", out)

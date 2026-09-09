@@ -257,3 +257,15 @@ class InspectTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HumanSizeTest(unittest.TestCase):
+    def test_decimal_units_match_what_lm_studio_shows(self):
+        # The two shards of Aratako/Amaterasu-123B-GGUF add up to this, and
+        # LM Studio calls it 65.4 GB; 1024-based units would say 60.9.
+        self.assertEqual(gguf.human_size(49956119840 + 15478221856), "65.4GB")
+
+    def test_small_sizes(self):
+        self.assertEqual(gguf.human_size(0), "?")
+        self.assertEqual(gguf.human_size(512), "512B")
+        self.assertEqual(gguf.human_size(1500), "1.5KB")

@@ -9,7 +9,8 @@ from . import gguf, mmproj
 
 # A split model is "name-00002-of-00005.gguf"; only the first part carries
 # the full header, and every part is about the same size.
-_SPLIT_PART = re.compile(r"-([0-9]{5})-of-[0-9]{5}[.]gguf$", re.IGNORECASE)
+_SPLIT_PART = re.compile(r"^(?P<stem>.+)-(?P<part>[0-9]{5})-of-[0-9]{5}[.]gguf$",
+                         re.IGNORECASE)
 
 
 def existing_models(lm_studio_dir):
@@ -48,6 +49,8 @@ class LmModel:
     text: object = None  # the primary text GGUF, or None
     projectors: list = field(default_factory=list)
     extras: list = field(default_factory=list)  # MTP/draft modules, other quants
+    nested: list = field(default_factory=list)  # GGUFs found below the model directory
+    size: int = 0  # the text model, counting every part of a split one
 
     @property
     def has_projector(self):
@@ -60,21 +63,47 @@ class LmModel:
 
 
 def _is_split_continuation(name):
-    match = _SPLIT_PART.search(name)
-    return bool(match) and int(match.group(1)) != 1
+    match = _SPLIT_PART.match(name)
+    return bool(match) and int(match.group("part")) != 1
+
+
+def _split_stem(name):
+    match = _SPLIT_PART.match(name)
+    return match.group("stem") if match else None
+
+
+def _set_size(infos, primary):
+    """The size of a model, counting every part when it is a split one."""
+    stem = _split_stem(primary.path.name)
+    if stem is None:
+        return primary.size
+    return sum(info.size for info in infos if _split_stem(info.path.name) == stem)
+
+
+def gguf_files(path):
+    """Every GGUF in a model directory, including one level of subdirectory.
+
+    A directory per quantisation is a layout LM Studio itself will index, so
+    a model laid out that way has to be visible here even though importing
+    now flattens it.
+    """
+    try:
+        return sorted(path.glob("*.gguf")) + sorted(path.glob("*/*.gguf"))
+    except OSError:
+        return []
 
 
 def describe(name, path):
     """Read every GGUF in one model directory and sort out what it holds."""
     model = LmModel(name=name, path=path)
-    try:
-        paths = sorted(path.glob("*.gguf"))
-    except OSError:
-        return model
+    paths = gguf_files(path)
+    model.nested = [p for p in paths if p.parent != path]
 
     models = []
+    parts = []
     for gguf_path in paths:
         info = gguf.inspect(gguf_path)
+        parts.append(info)
         if info.is_projector:
             model.projectors.append(info)
         elif not _is_split_continuation(gguf_path.name):
@@ -85,6 +114,7 @@ def describe(name, path):
         # a companion, such as the MTP/draft module Gemma 4 repos ship.
         models.sort(key=lambda info: info.size, reverse=True)
         model.text, model.extras = models[0], models[1:]
+        model.size = _set_size(parts, model.text)
     return model
 
 

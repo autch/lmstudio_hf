@@ -121,6 +121,11 @@ projector rather than freezing it, and a version mismatch inside one family.
 1. The tool scans your Hugging Face cache directory (checks `HF_HOME`, `XDG_CACHE_HOME/huggingface`, or `~/.cache/huggingface`)
 2. Identifies all downloaded models, reading the model type from `config.json` when one is present and the architecture, quantisation and projector details from GGUF headers when they are not
 3. Creates links in the LM Studio models directory (see [Environment Variables](#environment-variables))
+   - Some repositories give each quantisation its own subdirectory. LM Studio
+     indexes a model by its path and expects `publisher/repo/file.gguf`, so a
+     model one level deeper is named after the directory (`iq4_xs`) instead of
+     after itself. Those GGUF files are flattened into the model directory;
+     names that would collide keep their directory as a prefix
 4. Shows model type and import status for each model
 5. Marks already imported models, so selecting one removes it again
 
@@ -190,6 +195,9 @@ present, so the suite runs anywhere.
 - Nothing is selected when the list opens; selecting an already imported model and
   confirming removes it from LM Studio
 - Model types are displayed in parentheses (e.g., `(llama)`, `(bert)`, `(gpt2)`)
+- Sizes are decimal (65.4GB, not 60.9GiB), so they line up with what LM Studio
+  and the Hugging Face Hub show. A split model is reported as the sum of its
+  parts
 
 ## Contributing
 
